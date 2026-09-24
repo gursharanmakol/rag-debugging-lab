@@ -1,15 +1,25 @@
 import argparse
 import datetime
+import importlib.metadata
 import sys
 
+from eval.checks import eligibility_report
+from src.eligibility import is_eligible
 from src.embed import load_model
 from src.load import load_corpus, load_questions
-from src.search import build_index
+from src.report import format_evaluate, format_inspect
+from src.search import build_index, eligible_results, searchable_documents
 
 ALLOWED_STATUS = ("draft", "published", "superseded", "active")
 ALLOWED_TYPE = ("policy", "help")
 REQUIRED_DOC_FIELDS = ("id", "title", "type", "status", "updated")
 REQUIRED_QUESTION_FIELDS = ("id", "question", "expected")
+# Versions from uv.lock / requirements.txt (tested environment).
+EXPECTED_PACKAGE_VERSIONS = {
+    "model2vec": "0.9.0",
+    "numpy": "2.5.3",
+    "pyyaml": "6.0.3",
+}
 
 
 def main() -> None:
@@ -23,13 +33,30 @@ def main() -> None:
     search_parser = sub.add_parser("search", help="Search the corpus")
     search_parser.add_argument("query")
     search_parser.add_argument("--k", type=int, default=3)
+    evaluate_parser = sub.add_parser("evaluate", help="Score the questions")
+    evaluate_parser.add_argument("--verbose", action="store_true")
+    inspect_parser = sub.add_parser("inspect", help="Show one question")
+    inspect_parser.add_argument("qid")
+    inspect_parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     if args.command == "check":
-        raise SystemExit(run_check())
+        code = run_check()
+        print()
+        raise SystemExit(code)
     if args.command == "corpus":
         raise SystemExit(run_corpus())
     if args.command == "search":
-        raise SystemExit(run_search(args.query, args.k))
+        code = run_search(args.query, args.k)
+        print()
+        raise SystemExit(code)
+    if args.command == "evaluate":
+        code = run_evaluate(args.verbose)
+        print()
+        raise SystemExit(code)
+    if args.command == "inspect":
+        code = run_inspect(args.qid, args.verbose)
+        print()
+        raise SystemExit(code)
     parser.print_help()
 
 
@@ -42,6 +69,9 @@ def run_check() -> int:
         print(f"[FAIL] Python 3.12 required, found {version}")
         return 1
     print(f"[OK] Python {version}")
+
+    if not _check_package_versions():
+        return 1
 
     doc_problems = []
     docs = None
@@ -113,8 +143,32 @@ def run_check() -> int:
             print(f"[FAIL] {problem}")
         return 1
 
-    print("Ready.")
+    print("Ready. Next: uv run python lab.py evaluate")
     return 0
+
+
+def _check_package_versions() -> bool:
+    mismatched = False
+    for name, expected in EXPECTED_PACKAGE_VERSIONS.items():
+        try:
+            found = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            print(f"[FAIL] Package {name} is not installed (expected {expected})")
+            return False
+        if found != expected:
+            print(
+                f"[WARN] {name} {found} (tested with {expected}); "
+                "exact retrieval scores may differ from documented values"
+            )
+            mismatched = True
+        else:
+            print(f"[OK] {name} {found}")
+    if mismatched:
+        print(
+            "[WARN] Dependency versions differ from the tested lockfile. "
+            "Exact retrieval scores may differ from documented values."
+        )
+    return True
 
 
 def _embedding_model_ok() -> bool:
@@ -129,7 +183,7 @@ def _embedding_model_ok() -> bool:
 def run_search(query: str, k: int) -> int:
     docs = load_corpus()
     index = build_index(docs)
-    hits = index.search(query, k=k)
+    hits = eligible_results(index, query, k)
     header = ("rank", "id", "score")
     rows = [header]
     for rank, (doc, score) in enumerate(hits, start=1):
@@ -141,6 +195,56 @@ def run_search(query: str, k: int) -> int:
     for row in rows:
         pieces = [cell.ljust(widths[index]) for index, cell in enumerate(row)]
         print("  ".join(pieces).rstrip())
+    return 0
+
+
+def run_evaluate(verbose: bool) -> int:
+    docs = load_corpus()
+    index = build_index(docs)
+    questions = load_questions()
+    results = []
+    for item in questions:
+        hits = eligible_results(index, item["question"], 3)
+        got = [doc.id for doc, _score in hits]
+        results.append(
+            {
+                "id": item["id"],
+                "question": item["question"],
+                "expected": item["expected"],
+                "got": got,
+                "passed": item["expected"] in got,
+            }
+        )
+    searchable = searchable_documents(load_corpus())
+    ok, ineligible = eligibility_report(searchable)
+    print(format_evaluate(results, ok, ineligible, verbose))
+    return 0
+
+
+def run_inspect(qid: str, verbose: bool) -> int:
+    questions = load_questions()
+    match = None
+    for item in questions:
+        if str(item.get("id", "")).lower() == qid.lower():
+            match = item
+            break
+    if match is None:
+        print(f"[FAIL] Unknown question id {qid}")
+        return 1
+    index = build_index(load_corpus())
+    question = match["question"]
+    candidates = index.search(question, k=5)
+    finals = eligible_results(index, question, k=3)
+    print(
+        format_inspect(
+            question,
+            match["expected"],
+            candidates,
+            finals,
+            verbose,
+            is_eligible,
+        )
+    )
     return 0
 
 
