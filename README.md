@@ -138,8 +138,6 @@ Open the entire lab folder in the editor or IDE you normally use. You may use it
 
 Run the lab commands in the terminal to reproduce the problem and investigate what is happening. Make the code change you think is needed, then run the commands again to verify your fix.
 
-You won't need a debugger.
-
 ### Using AI tools
 
 You may use AI for incidental technical help: environment or setup issues, terminal or path problems, Python syntax, understanding an error message, or editor and tool usage.
