@@ -277,3 +277,9 @@ For deeper RAG background after the lab, the AI in Practice Hub RAG series is op
 - [Part 2: What RAG Is and Why It Works](https://aiinpracticehub.com/articles/what-rag-is-and-why-it-works/)
 - [Part 3: How RAG Works: The Complete Pipeline](https://aiinpracticehub.com/articles/how-rag-works-the-complete-pipeline/)
 - [Part 4: Chunking, Retrieval, and the Decisions That Break RAG](https://aiinpracticehub.com/articles/chunking-retrieval-and-the-decisions-that-break-rag/)
+
+## License
+
+Code and lab content: MIT. See `LICENSE`.
+
+Bundled embedding model: see `THIRD_PARTY_NOTICES.md`.
